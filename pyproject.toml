@@ -1,0 +1,64 @@
+[project]
+name = "nexus-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "nexus-api",
+    "nexus-chunker",
+    "nexus-connectors",
+    "nexus-core",
+    "nexus-ingestion",
+    "nexus-retriever",
+    "nexus-scheduler",
+    "nexus-worker",
+]
+
+[tool.uv.sources]
+nexus-api = { workspace = true }
+nexus-chunker = { workspace = true }
+nexus-connectors = { workspace = true }
+nexus-core = { workspace = true }
+nexus-ingestion = { workspace = true }
+nexus-retriever = { workspace = true }
+nexus-scheduler = { workspace = true }
+nexus-worker = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "packages/core",
+    "packages/chunker",
+    "packages/retriever",
+    "services/api",
+    "services/ingestion",
+    "services/connectors",
+    "services/scheduler",
+    "services/worker",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.10",
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "packages", "services"]
+markers = [
+    "integration: tests that require local infrastructure services",
+]
