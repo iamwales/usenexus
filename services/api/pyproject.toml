@@ -1,0 +1,33 @@
+[project]
+name = "nexus-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aiokafka>=0.10",
+    "alembic>=1.13",
+    "elasticsearch[async]>=8.13",
+    "fastapi>=0.111",
+    "nexus-connectors",
+    "nexus-core",
+    "nexus-ingestion",
+    "nexus-retriever",
+    "nexus-worker",
+    "PyJWT>=2.8",
+    "qdrant-client>=1.9",
+    "redis[hiredis]>=5.0",
+    "uvicorn[standard]>=0.30",
+]
+
+[tool.uv.sources]
+nexus-connectors = { workspace = true }
+nexus-core = { workspace = true }
+nexus-ingestion = { workspace = true }
+nexus-retriever = { workspace = true }
+nexus-worker = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nexus_api"]

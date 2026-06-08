@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+asyncpg://nexus:nexus@localhost:5432/nexus
+      REDIS_URL: redis://localhost:6379/0
+      KAFKA_BROKERS: localhost:9092
+      QDRANT_URL: http://localhost:6333
+      ELASTICSEARCH_URL: http://localhost:9200
+      OPENAI_API_KEY: dev-openai-key
+      COHERE_API_KEY: dev-cohere-key
+      JWT_SECRET: dev-jwt-secret-minimum-32-characters
+      ENCRYPTION_KEY_ID: local
+      WEBHOOK_SIGNING_SECRET: dev-webhook-secret
+      S3_BUCKET: nexus-raw-dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-packages
+      - run: uv run ruff check .
+      - run: uv run pytest --collect-only -q
+      - run: uv run pytest tests/unit -q
+      - run: docker compose config --quiet
