@@ -1,0 +1,32 @@
+[
+  {
+    "question": "What is our Q3 revenue target?",
+    "ground_truth": "The Q3 revenue target is $2M ARR based on the board-approved OKR.",
+    "relevant_doc_ids": ["q3_okrs_doc"],
+    "connector": "google_drive"
+  },
+  {
+    "question": "Who is responsible for the design system?",
+    "ground_truth": "The design system is owned by the Design team, led by the Head of Design.",
+    "relevant_doc_ids": ["design_system_doc"],
+    "connector": "notion"
+  },
+  {
+    "question": "What was decided in the last architecture review?",
+    "ground_truth": "The architecture review decided to migrate to a microservices pattern for the ingestion pipeline.",
+    "relevant_doc_ids": ["arch_review_notes"],
+    "connector": "confluence"
+  },
+  {
+    "question": "What are the open P1 bugs this sprint?",
+    "ground_truth": "There are 3 open P1 bugs: authentication timeout on mobile, search returning stale results, and webhook retry not working for Slack.",
+    "relevant_doc_ids": ["sprint_board"],
+    "connector": "linear"
+  },
+  {
+    "question": "What is the on-call rotation schedule?",
+    "ground_truth": "The on-call rotation is weekly, starting Monday. Alice is on-call this week, followed by Bob next week.",
+    "relevant_doc_ids": ["oncall_doc"],
+    "connector": "notion"
+  }
+]
