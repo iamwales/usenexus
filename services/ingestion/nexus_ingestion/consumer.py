@@ -89,7 +89,7 @@ async def run_consumer() -> None:
     logger.info("consumer.ready")
 
     # Register shutdown handlers
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: _handle_signal(s))
 

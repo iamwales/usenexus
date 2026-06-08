@@ -92,7 +92,10 @@ async def _full_sync(connection_id: str) -> dict:
 
     redis_client = aioredis.from_url(str(settings.redis_url), decode_responses=True)
     qdrant = AsyncQdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
-    es = AsyncElasticsearch(settings.elasticsearch_url)
+    es = AsyncElasticsearch(
+        settings.elasticsearch_url,
+        api_key=settings.elasticsearch_api_key,
+    )
 
     pipeline = IngestionPipeline(
         deduplicator=Deduplicator(redis_client),

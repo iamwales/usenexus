@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import secrets
 import uuid
+from contextlib import suppress
 from datetime import datetime
 from typing import Annotated
 
@@ -30,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
+_CONNECTION_TENANT_CACHE_TTL_SECONDS = 86_400
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -148,6 +150,18 @@ async def oauth_callback(
         )
 
     await db.commit()
+    try:
+        await redis.set(
+            f"connection_org:{connection.id}",
+            str(org_id),
+            ex=_CONNECTION_TENANT_CACHE_TTL_SECONDS,
+        )
+    except Exception as e:
+        logger.warning(
+            "connections.tenant_cache_write_failed",
+            connection_id=str(connection.id),
+            error=str(e),
+        )
 
     # Save credentials (encrypted)
     creds = creds.model_copy(update={"connection_id": connection.id})
@@ -282,6 +296,8 @@ async def delete_connection(
     # Mark revoked
     await db.execute(update(Connection).where(Connection.id == conn.id).values(status="revoked"))
     await db.commit()
+    with suppress(Exception):
+        await request.app.state.redis.delete(f"connection_org:{connection_id}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

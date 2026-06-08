@@ -6,9 +6,11 @@ No real HTTP calls — all mocked via httpx.MockTransport.
 
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from nexus_connectors.google_drive.connector import GoogleDriveConnector
 from nexus_core.schemas.domain import ChangeEventType, OAuthCredentials
@@ -131,6 +133,57 @@ class TestGoogleDriveDateParsing:
 
     def test_returns_none_for_invalid(self):
         assert self.connector._parse_dt("not-a-date") is None
+
+
+class TestGoogleDriveSubscriptions:
+    def setup_method(self):
+        self.connector = GoogleDriveConnector()
+
+    @pytest.mark.asyncio
+    async def test_subscribe_stores_channel_and_resource_id(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/changes/startPageToken"):
+                return httpx.Response(200, json={"startPageToken": "page_token_1"})
+            if request.url.path.endswith("/changes/watch"):
+                body = json.loads(request.content)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": body["id"],
+                        "resourceId": "drive_resource_123",
+                        "expiration": "1767225600000",
+                    },
+                )
+            return httpx.Response(404)
+
+        self.connector._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+        subscription = await self.connector.subscribe(
+            make_credentials(),
+            "https://api.example.test/v1/webhooks/google_drive/conn_1",
+        )
+
+        payload = json.loads(subscription.subscription_id)
+        assert payload["resource_id"] == "drive_resource_123"
+        assert uuid.UUID(payload["channel_id"])
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_uses_channel_and_resource_id(self):
+        requests: list[dict] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(json.loads(request.content))
+            return httpx.Response(200)
+
+        self.connector._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        subscription_id = self.connector._encode_subscription_id(
+            "channel_123",
+            "resource_456",
+        )
+
+        await self.connector.unsubscribe(make_credentials(), subscription_id)
+
+        assert requests == [{"id": "channel_123", "resourceId": "resource_456"}]
 
 
 class TestGoogleDriveContentTypeFiltering:

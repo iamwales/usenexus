@@ -59,9 +59,13 @@ class Deduplicator:
     async def invalidate(self, tenant_id: str, connector_id: str, resource_id: str) -> None:
         """Called on DELETE events to clear dedup state."""
         pattern = f"dedup:{tenant_id}:{connector_id}:{resource_id}:*"
-        keys = await self._redis.keys(pattern)
-        if keys:
-            await self._redis.delete(*keys)
+        cursor = 0
+        while True:
+            cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=500)
+            if keys:
+                await self._redis.delete(*keys)
+            if int(cursor) == 0:
+                break
 
 
 # ── Embedder ──────────────────────────────────────────────────────────────────
@@ -247,6 +251,7 @@ class UpsertWorker:
                     "chunk_id": chunk.chunk_id,
                     "tenant_id": chunk.tenant_id,
                     "connector_id": chunk.connector_id,
+                    "connection_id": chunk.connection_id,
                     "resource_id": chunk.resource_id,
                     "resource_type": chunk.resource_type,
                     "chunk_index": chunk.chunk_index,
@@ -290,6 +295,7 @@ class UpsertWorker:
                             "content": {"type": "text", "analyzer": "english"},
                             "title": {"type": "text", "analyzer": "english"},
                             "connector_id": {"type": "keyword"},
+                            "connection_id": {"type": "keyword"},
                             "resource_id": {"type": "keyword"},
                             "tenant_id": {"type": "keyword"},
                             "acl": {"type": "keyword"},

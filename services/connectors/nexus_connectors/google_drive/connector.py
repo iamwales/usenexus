@@ -11,6 +11,7 @@ Supports:
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -248,14 +249,16 @@ class GoogleDriveConnector(BaseConnector):
 
         expiry = data.get("expiration")
         expires_at = datetime.fromtimestamp(int(expiry) / 1000, tz=UTC) if expiry else None
+        resource_id = data.get("resourceId")
 
         logger.info(
             "drive.webhook_registered",
             channel_id=channel_id,
+            resource_id=resource_id,
             expires_at=expires_at,
         )
         return Subscription(
-            subscription_id=channel_id,
+            subscription_id=self._encode_subscription_id(channel_id, resource_id),
             expires_at=expires_at,
             webhook_url=webhook_url,
         )
@@ -265,10 +268,11 @@ class GoogleDriveConnector(BaseConnector):
         credentials: OAuthCredentials,
         subscription_id: str,
     ) -> None:
+        channel_id, resource_id = self._decode_subscription_id(subscription_id)
         resp = await self.http.post(
             f"{_DRIVE_API}/channels/stop",
             headers=self._bearer_headers(credentials),
-            json={"id": subscription_id, "resourceId": subscription_id},
+            json={"id": channel_id, "resourceId": resource_id},
         )
         if resp.status_code not in (200, 204, 404):
             resp.raise_for_status()
@@ -460,6 +464,31 @@ class GoogleDriveConnector(BaseConnector):
                 if email:
                     acl.append(email.lower())
         return acl
+
+    @staticmethod
+    def _encode_subscription_id(channel_id: str, resource_id: str | None) -> str:
+        if not resource_id:
+            return channel_id
+        return json.dumps(
+            {"channel_id": channel_id, "resource_id": resource_id},
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _decode_subscription_id(subscription_id: str) -> tuple[str, str]:
+        try:
+            payload = json.loads(subscription_id)
+        except json.JSONDecodeError:
+            return subscription_id, subscription_id
+
+        if not isinstance(payload, dict):
+            return subscription_id, subscription_id
+
+        channel_id = payload.get("channel_id") or payload.get("id")
+        resource_id = payload.get("resource_id") or payload.get("resourceId")
+        if not channel_id or not resource_id:
+            return subscription_id, subscription_id
+        return str(channel_id), str(resource_id)
 
     async def _get_start_page_token(self, credentials: OAuthCredentials) -> str:
         resp = await self.http.get(
