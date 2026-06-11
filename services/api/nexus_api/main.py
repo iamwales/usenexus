@@ -11,15 +11,21 @@ from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 from elasticsearch import AsyncElasticsearch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from nexus_core.config import get_settings
 from nexus_core.logging import configure_logging, get_logger
 from qdrant_client import AsyncQdrantClient
 
+from nexus_api.errors import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
 from nexus_api.middleware.auth import AuthMiddleware
 from nexus_api.middleware.rate_limit import RateLimitMiddleware
-from nexus_api.routers import connections, documents, health, keys, query, webhooks
+from nexus_api.routers import connections, documents, health, keys, organizations, query, webhooks
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -78,8 +84,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(AuthMiddleware)
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(AuthMiddleware)
+
+    # ── Error handling ───────────────────────────────────────────────────────
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health.router, tags=["Health"])
@@ -87,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(connections.router, prefix="/v1", tags=["Connections"])
     app.include_router(documents.router, prefix="/v1", tags=["Documents"])
     app.include_router(keys.router, prefix="/v1", tags=["API Keys"])
+    app.include_router(organizations.router, prefix="/v1", tags=["Organizations"])
     app.include_router(webhooks.router, prefix="/v1", tags=["Webhooks"])
 
     return app
