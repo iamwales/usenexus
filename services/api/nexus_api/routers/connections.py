@@ -18,7 +18,7 @@ from contextlib import suppress
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from nexus_core.config import get_settings
 from nexus_core.database import get_db
 from nexus_core.logging import get_logger
@@ -27,6 +27,9 @@ from nexus_core.schemas.domain import ConnectionStatus
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from nexus_api.dependencies import require_scopes
+from nexus_api.errors import api_error
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -54,7 +57,11 @@ class SyncJobOut(BaseModel):
     docs_total: int | None
 
 
-@router.get("/connections", response_model=list[ConnectionOut])
+@router.get(
+    "/connections",
+    response_model=list[ConnectionOut],
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def list_connections(
     request: Request,
     db: DbSession,
@@ -69,7 +76,10 @@ async def list_connections(
     return [ConnectionOut.model_validate(r) for r in rows.all()]
 
 
-@router.get("/connections/oauth/start")
+@router.get(
+    "/connections/oauth/start",
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def oauth_start(
     request: Request,
     db: DbSession,
@@ -78,7 +88,12 @@ async def oauth_start(
     from nexus_connectors.registry import get_connector, is_supported
 
     if not is_supported(connector):
-        raise HTTPException(400, f"Unknown connector: {connector}")
+        raise api_error(
+            400,
+            "unknown_connector",
+            "Unknown connector",
+            details={"connector": connector},
+        )
 
     org_id = request.state.org_id
     state_token = secrets.token_urlsafe(32)
@@ -110,7 +125,7 @@ async def oauth_callback(
     redis = request.app.state.redis
     state_raw = await redis.get(f"oauth_state:{state}")
     if not state_raw:
-        raise HTTPException(400, "Invalid or expired state token")
+        raise api_error(400, "invalid_oauth_state", "Invalid or expired state token")
 
     state_data = json.loads(state_raw)
     org_id = uuid.UUID(state_data["org_id"])
@@ -197,7 +212,10 @@ async def oauth_callback(
     }
 
 
-@router.get("/connections/{connection_id}/status")
+@router.get(
+    "/connections/{connection_id}/status",
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def connection_status(
     connection_id: str,
     request: Request,
@@ -241,7 +259,10 @@ async def connection_status(
     }
 
 
-@router.post("/connections/{connection_id}/sync")
+@router.post(
+    "/connections/{connection_id}/sync",
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def trigger_sync(
     connection_id: str,
     request: Request,
@@ -266,7 +287,11 @@ async def trigger_sync(
     return {"job_id": str(job.id), "status": "pending"}
 
 
-@router.delete("/connections/{connection_id}", status_code=204)
+@router.delete(
+    "/connections/{connection_id}",
+    status_code=204,
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def delete_connection(
     connection_id: str,
     request: Request,
@@ -308,12 +333,17 @@ async def _get_connection(
     connection_id: str,
     org_id: uuid.UUID,
 ) -> Connection:
+    try:
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError as e:
+        raise api_error(400, "invalid_connection_id", "Connection id must be a valid UUID") from e
+
     conn = await db.scalar(
         select(Connection).where(
-            Connection.id == uuid.UUID(connection_id),
+            Connection.id == connection_uuid,
             Connection.org_id == org_id,
         )
     )
     if not conn:
-        raise HTTPException(404, "Connection not found")
+        raise api_error(404, "connection_not_found", "Connection not found")
     return conn
