@@ -38,8 +38,21 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    connections: Mapped[list["Connection"]] = relationship(back_populates="organization")
-    api_keys: Mapped[list["ApiKey"]] = relationship(back_populates="organization")
+    connections: Mapped[list["Connection"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    api_keys: Mapped[list["ApiKey"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    query_logs: Mapped[list["QueryLog"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Connection(Base):
@@ -62,11 +75,26 @@ class Connection(Base):
 
     organization: Mapped[Organization] = relationship(back_populates="connections")
     credentials: Mapped["OAuthCredentials | None"] = relationship(
-        back_populates="connection", uselist=False
+        back_populates="connection",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    documents: Mapped[list["Document"]] = relationship(back_populates="connection")
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    sync_jobs: Mapped[list["SyncJob"]] = relationship(
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
-    __table_args__ = (Index("uq_connection_org_connector", "org_id", "connector_id", unique=True),)
+    __table_args__ = (
+        Index("uq_connection_org_connector", "org_id", "connector_id", unique=True),
+        Index("idx_connection_org_status", "org_id", "status"),
+    )
 
 
 class OAuthCredentials(Base):
@@ -112,6 +140,7 @@ class Document(Base):
         Index("idx_document_org", "org_id"),
         Index("idx_document_connection", "connection_id"),
         Index("idx_document_status", "status"),
+        Index("idx_document_org_status", "org_id", "status"),
     )
 
 
@@ -131,6 +160,12 @@ class ApiKey(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship(back_populates="api_keys")
+    query_logs: Mapped[list["QueryLog"]] = relationship(
+        back_populates="api_key",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (Index("idx_api_key_org_revoked", "org_id", "revoked_at"),)
 
 
 class SyncJob(Base):
@@ -149,7 +184,12 @@ class SyncJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    __table_args__ = (Index("idx_sync_job_connection", "connection_id"),)
+    connection: Mapped[Connection] = relationship(back_populates="sync_jobs")
+
+    __table_args__ = (
+        Index("idx_sync_job_connection", "connection_id"),
+        Index("idx_sync_job_org_status", "org_id", "status"),
+    )
 
 
 class QueryLog(Base):
@@ -157,7 +197,9 @@ class QueryLog(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
-    api_key_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("api_keys.id"), nullable=True)
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="SET NULL"), nullable=True
+    )
     query_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     response_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -166,4 +208,10 @@ class QueryLog(Base):
     connectors_used: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (Index("idx_query_log_org", "org_id"),)
+    organization: Mapped[Organization] = relationship(back_populates="query_logs")
+    api_key: Mapped[ApiKey | None] = relationship(back_populates="query_logs")
+
+    __table_args__ = (
+        Index("idx_query_log_org", "org_id"),
+        Index("idx_query_log_org_created", "org_id", "created_at"),
+    )
