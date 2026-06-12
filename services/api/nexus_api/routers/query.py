@@ -21,6 +21,8 @@ from nexus_retriever.engine import QueryEngine
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from nexus_api.dependencies import require_scopes
+
 logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
@@ -65,7 +67,11 @@ def get_query_engine(request: Request) -> QueryEngine:
 QueryEngineDep = Annotated[QueryEngine, Depends(get_query_engine)]
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post(
+    "/query",
+    response_model=QueryResponse,
+    dependencies=[Depends(require_scopes("query"))],
+)
 async def query(
     body: QueryRequest,
     request: Request,
@@ -95,7 +101,13 @@ async def query(
     )
 
     # Async fire-and-forget query log
-    await _log_query(db, org_id, body.query, response)
+    await _log_query(
+        db,
+        org_id,
+        body.query,
+        response,
+        getattr(request.state, "api_key_id", None),
+    )
     return response
 
 
@@ -125,12 +137,14 @@ async def _log_query(
     org_id: str,
     query_text: str,
     response: QueryResponse,
+    api_key_id: str | None,
 ) -> None:
     import hashlib
 
     try:
         log = QueryLog(
             org_id=uuid.UUID(org_id),
+            api_key_id=uuid.UUID(api_key_id) if api_key_id else None,
             query_hash=hashlib.sha256(query_text.encode()).hexdigest(),
             response_tokens=None,
             latency_ms=response.latency_ms,

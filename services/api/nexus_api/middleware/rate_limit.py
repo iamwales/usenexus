@@ -17,9 +17,10 @@ import time
 import uuid
 
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
 from nexus_core.logging import get_logger
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from nexus_api.errors import error_response
 
 logger = get_logger(__name__)
 
@@ -34,12 +35,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         org_id: str = request.state.org_id
+        api_key_id: str | None = getattr(request.state, "api_key_id", None)
         limit = getattr(request.state, "rate_limit_rpm", _DEFAULT_RPM)
         redis = request.app.state.redis
 
         now_ms = int(time.time() * 1000)
         window_start = now_ms - _WINDOW_MS
-        key = f"ratelimit:{org_id}"
+        key = f"ratelimit:{api_key_id or org_id}"
 
         # Lua script for atomic sliding window check
         lua_script = """
@@ -79,9 +81,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not allowed:
             logger.warning("rate_limit.exceeded", org_id=org_id, count=current_count)
-            return JSONResponse(
-                status_code=429,
-                content={"error": "Rate limit exceeded", "retry_after": 60},
+            return error_response(
+                429,
+                "rate_limited",
+                "Rate limit exceeded",
+                details={"retry_after": 60},
+                request_id=request.headers.get("x-request-id"),
                 headers={
                     "Retry-After": "60",
                     "X-RateLimit-Limit": str(limit),

@@ -6,22 +6,54 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from nexus_core.database import get_db
 from nexus_core.models.orm import ApiKey
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-router = APIRouter()
+from nexus_api.dependencies import require_scopes
+from nexus_api.errors import api_error
+
+router = APIRouter(dependencies=[Depends(require_scopes("manage"))])
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+_ALLOWED_SCOPES = {"query", "manage"}
 
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     scopes: list[str] = Field(default_factory=lambda: ["query"])
     rate_limit_rpm: int = Field(default=60, ge=1, le=10_000)
+    expires_at: datetime | None = None
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, scopes: list[str]) -> list[str]:
+        if not scopes:
+            raise ValueError("API key must include at least one scope")
+        invalid = sorted(set(scopes) - _ALLOWED_SCOPES)
+        if invalid:
+            raise ValueError(f"Unsupported API key scopes: {invalid}")
+        return sorted(set(scopes))
+
+
+class ApiKeyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    scopes: list[str] | None = None
+    rate_limit_rpm: int | None = Field(default=None, ge=1, le=10_000)
+    expires_at: datetime | None = None
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, scopes: list[str] | None) -> list[str] | None:
+        if scopes is None:
+            return scopes
+        invalid = sorted(set(scopes) - _ALLOWED_SCOPES)
+        if invalid:
+            raise ValueError(f"Unsupported API key scopes: {invalid}")
+        return sorted(set(scopes))
 
 
 class ApiKeyOut(BaseModel):
@@ -73,12 +105,45 @@ async def create_key(
         key_prefix=key_prefix,
         scopes=body.scopes,
         rate_limit_rpm=body.rate_limit_rpm,
+        expires_at=body.expires_at,
     )
     db.add(row)
     await db.flush()
 
     data = _serialize_key(row).model_dump()
     return ApiKeyCreated(**data, api_key=raw_key)
+
+
+@router.patch("/keys/{key_id}", response_model=ApiKeyOut)
+async def update_key(
+    key_id: str,
+    body: ApiKeyUpdate,
+    request: Request,
+    db: DbSession,
+) -> ApiKeyOut:
+    org_id = uuid.UUID(request.state.org_id)
+    key_uuid = _parse_key_id(key_id)
+    row = await db.scalar(
+        select(ApiKey).where(
+            ApiKey.id == key_uuid,
+            ApiKey.org_id == org_id,
+            ApiKey.revoked_at.is_(None),
+        )
+    )
+    if not row:
+        raise api_error(404, "api_key_not_found", "API key not found")
+
+    if body.name is not None:
+        row.name = body.name
+    if body.scopes is not None:
+        row.scopes = body.scopes
+    if body.rate_limit_rpm is not None:
+        row.rate_limit_rpm = body.rate_limit_rpm
+    if "expires_at" in body.model_fields_set:
+        row.expires_at = body.expires_at
+
+    await db.flush()
+    return _serialize_key(row)
 
 
 @router.delete("/keys/{key_id}", status_code=204)
@@ -88,13 +153,21 @@ async def revoke_key(
     db: DbSession,
 ) -> None:
     org_id = uuid.UUID(request.state.org_id)
+    key_uuid = _parse_key_id(key_id)
     result = await db.execute(
         update(ApiKey)
-        .where(ApiKey.id == uuid.UUID(key_id), ApiKey.org_id == org_id)
+        .where(ApiKey.id == key_uuid, ApiKey.org_id == org_id, ApiKey.revoked_at.is_(None))
         .values(revoked_at=datetime.now(UTC))
     )
     if result.rowcount == 0:
-        raise HTTPException(404, "API key not found")
+        raise api_error(404, "api_key_not_found", "API key not found")
+
+
+def _parse_key_id(key_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(key_id)
+    except ValueError as e:
+        raise api_error(400, "invalid_api_key_id", "API key id must be a valid UUID") from e
 
 
 def _serialize_key(row: ApiKey) -> ApiKeyOut:

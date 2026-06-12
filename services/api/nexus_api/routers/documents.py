@@ -4,12 +4,15 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from nexus_core.database import get_db
 from nexus_core.models.orm import Document
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from nexus_api.dependencies import require_scopes
+from nexus_api.errors import api_error
 
 router = APIRouter()
 
@@ -31,7 +34,11 @@ class DocumentOut(BaseModel):
     error: str | None
 
 
-@router.get("/documents", response_model=list[DocumentOut])
+@router.get(
+    "/documents",
+    response_model=list[DocumentOut],
+    dependencies=[Depends(require_scopes("query"))],
+)
 async def list_documents(
     request: Request,
     db: DbSession,
@@ -74,20 +81,32 @@ async def list_documents(
     ]
 
 
-@router.delete("/documents/{document_id}", status_code=204)
+@router.delete(
+    "/documents/{document_id}",
+    status_code=204,
+    dependencies=[Depends(require_scopes("manage"))],
+)
 async def delete_document(
     document_id: str,
     request: Request,
     db: DbSession,
 ) -> None:
     org_id = uuid.UUID(request.state.org_id)
+    document_uuid = _parse_document_id(document_id)
     doc = await db.scalar(
         select(Document).where(
-            Document.id == uuid.UUID(document_id),
+            Document.id == document_uuid,
             Document.org_id == org_id,
         )
     )
     if not doc:
-        raise HTTPException(404, "Document not found")
+        raise api_error(404, "document_not_found", "Document not found")
 
     await db.execute(update(Document).where(Document.id == doc.id).values(status="deleted"))
+
+
+def _parse_document_id(document_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(document_id)
+    except ValueError as e:
+        raise api_error(400, "invalid_document_id", "Document id must be a valid UUID") from e
