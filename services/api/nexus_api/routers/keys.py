@@ -31,6 +31,8 @@ class ApiKeyCreate(BaseModel):
     @field_validator("scopes")
     @classmethod
     def validate_scopes(cls, scopes: list[str]) -> list[str]:
+        if not scopes:
+            raise ValueError("API key must include at least one scope")
         invalid = sorted(set(scopes) - _ALLOWED_SCOPES)
         if invalid:
             raise ValueError(f"Unsupported API key scopes: {invalid}")
