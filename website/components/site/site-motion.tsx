@@ -206,7 +206,8 @@ export function SiteMotion() {
     dots.forEach((dot, i) => {
       const click = () => {
         const target = document.getElementById(sectionDots[i]);
-        target?.scrollIntoView({ behavior: "smooth" });
+        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        target?.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth" });
       };
       dot.addEventListener("click", click);
       cleanups.push(() => dot.removeEventListener("click", click));
