@@ -34,9 +34,9 @@ function TrafficLights() {
 
 function SectionDots() {
   return (
-    <nav aria-hidden="true" className="side-dots">
+    <nav className="side-dots" aria-label="Page sections">
       {sectionDots.map((section, index) => (
-        <button className={`side-dot ${index === 0 ? "active" : ""}`} data-s={section} key={section} type="button" />
+        <button aria-label={`Jump to ${section}`} aria-controls={section} className={`side-dot ${index === 0 ? "active" : ""}`} data-s={section} key={section} type="button" />
       ))}
     </nav>
   );
