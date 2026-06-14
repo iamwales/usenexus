@@ -1,4 +1,4 @@
-import { Code2, Github, Mail, MessageCircle, Shield, Terminal } from "lucide-react";
+import { Code2, Github, Mail, MessageCircle, Shield } from "lucide-react";
 
 import {
   agentFlow,
